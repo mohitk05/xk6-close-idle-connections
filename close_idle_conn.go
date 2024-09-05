@@ -25,9 +25,9 @@ type (
 )
 
 type TransportManager struct {
-	transport *http.Transport
-	started   bool
-	endFlag   bool
+	vu      modules.VU
+	started bool
+	endFlag bool
 }
 
 // Ensure the interfaces are implemented correctly.
@@ -45,6 +45,12 @@ func (tm *TransportManager) Start(intervalSeconds int) {
 	if tm.started {
 		return
 	}
+	if intervalSeconds < 5 {
+		tm.vu.State().Logger.Warn("intervalSeconds should be greater than 5 seconds, using default value 5 seconds")
+		intervalSeconds = 5
+	}
+
+	transport := tm.vu.State().Transport.(*http.Transport)
 	go func() {
 		for {
 			if tm.endFlag {
@@ -52,10 +58,11 @@ func (tm *TransportManager) Start(intervalSeconds int) {
 				break
 			}
 			time.Sleep(time.Duration(intervalSeconds) * time.Second)
-			tm.transport.CloseIdleConnections()
+			transport.CloseIdleConnections()
 		}
 	}()
 	tm.started = true
+	tm.endFlag = false
 }
 
 func (tm *TransportManager) End() {
@@ -67,9 +74,9 @@ func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 	return &CloseIdleConn{
 		vu: vu,
 		transportManager: &TransportManager{
-			transport: vu.State().Transport.(*http.Transport),
-			started:   false,
-			endFlag:   false,
+			vu:      vu,
+			started: false,
+			endFlag: false,
 		},
 	}
 }
