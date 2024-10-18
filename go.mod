@@ -1,4 +1,4 @@
-module xk6-close-idle-connections
+module github.com/mohitk05/xk6-close-idle-connections
 
 go 1.23
 
