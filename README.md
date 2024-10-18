@@ -8,7 +8,7 @@ xk6 build v0.53.0 --with github.com/mohitk05/xk6-close-idle-connections@latest
 
 ## Usage
 ```javascript
-import closeIdleConnections from 'k6/x/closeIdleConnections';
+import * as closeIdleConnections from 'k6/x/closeIdleConnections';
 
 // Call in init context, close idle connections every 10 seconds
 closeIdleConnections.start(10);
