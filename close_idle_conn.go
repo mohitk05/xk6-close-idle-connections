@@ -19,16 +19,11 @@ type (
 	// ModuleInstance represents an instance of the JS module.
 	CloseIdleConn struct {
 		// vu provides methods for accessing internal k6 objects for a VU
-		vu               modules.VU
-		transportManager *TransportManager
+		vu          modules.VU
+		started     bool
+		channelDone chan bool
 	}
 )
-
-type TransportManager struct {
-	vu      modules.VU
-	started bool
-	endFlag bool
-}
 
 // Ensure the interfaces are implemented correctly.
 var (
@@ -41,48 +36,51 @@ func New() *RootModule {
 	return &RootModule{}
 }
 
-func (tm *TransportManager) Start(intervalSeconds int) {
-	if tm.started {
+func (ci *CloseIdleConn) Start(intervalSeconds int) {
+	if ci.started {
 		return
 	}
+
 	if intervalSeconds < 5 {
-		tm.vu.State().Logger.Warn("intervalSeconds should be greater than 5 seconds, using default value 5 seconds")
+		ci.vu.State().Logger.Warn("intervalSeconds should be greater than 5 seconds, using default value 5 seconds")
 		intervalSeconds = 5
 	}
 
-	transport := tm.vu.State().Transport.(*http.Transport)
+	transport := ci.vu.State().Transport.(*http.Transport)
 	go func() {
+		ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
+		ci.started = true
 		for {
-			if tm.endFlag {
-				tm.started = false
-				break
+			select {
+			case <-ticker.C:
+				transport.CloseIdleConnections()
+			case <-ci.channelDone:
+				ticker.Stop()
+				ci.started = false
+				return
 			}
-			time.Sleep(time.Duration(intervalSeconds) * time.Second)
-			transport.CloseIdleConnections()
 		}
 	}()
-	tm.started = true
-	tm.endFlag = false
 }
 
-func (tm *TransportManager) End() {
-	tm.endFlag = true
+func (ci *CloseIdleConn) End() {
+	ci.channelDone <- true
 }
 
 // NewModuleInstance implements the modules.Module interface returning a new instance for each VU.
 func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 	return &CloseIdleConn{
-		vu: vu,
-		transportManager: &TransportManager{
-			vu:      vu,
-			started: false,
-			endFlag: false,
-		},
+		vu:          vu,
+		started:     false,
+		channelDone: make(chan bool),
 	}
 }
 
 func (mi *CloseIdleConn) Exports() modules.Exports {
 	return modules.Exports{
-		Default: mi.transportManager,
+		Named: map[string]interface{}{
+			"start": mi.Start,
+			"end":   mi.End,
+		},
 	}
 }
