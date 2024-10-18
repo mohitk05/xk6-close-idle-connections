@@ -1,6 +1,6 @@
 module xk6-close-idle-connections
 
-go 1.22.1
+go 1.23
 
 require (
 	buf.build/gen/go/gogo/protobuf/protocolbuffers/go v1.31.0-20210810001428-4df00b267f94.1 // indirect
