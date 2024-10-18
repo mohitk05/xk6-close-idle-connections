@@ -1,7 +1,6 @@
 package close_idle_conn
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -46,13 +45,10 @@ func (cw *ConnectionWatcher) Reset() {
 func TestCloseIdleConnStart(t *testing.T) {
 	t.Parallel()
 
-	fmt.Println("TestCloseIdleConnStart")
-
 	testCases := []struct {
 		Name                string
 		WaitTime            int
 		EnableCloseIdleConn bool
-		NoConnectionReuse   bool
 		Script              string
 		Tester              func(t *testing.T, newConnections int64)
 	}{
@@ -60,89 +56,84 @@ func TestCloseIdleConnStart(t *testing.T) {
 			Name:                "No close_idle_conn, 4 requests",
 			WaitTime:            0,
 			EnableCloseIdleConn: false,
-			NoConnectionReuse:   false,
 			Script:              `for (let i = 0; i < 4; i++) { http.get("HTTPBIN_URL/get") }`,
 			Tester: func(t *testing.T, newConnections int64) {
 				require.Equal(t, int64(1), newConnections)
 			},
 		},
 		{
-			Name:                "No close_idle_conn, 4 requests, with K6_NO_CONNECTION_REUSE",
-			WaitTime:            0,
-			EnableCloseIdleConn: false,
-			NoConnectionReuse:   true,
-			Script:              `for (let i = 0; i < 4; i++) { http.get("HTTPBIN_URL/get") }`,
-			Tester: func(t *testing.T, newConnections int64) {
-				require.Equal(t, int64(4), newConnections)
-			},
-		},
-		{
-			Name:                "With close_idle_conn.start(5), 4 requests, wait 1 second each",
+			Name:                "With close_idle_conn.start(5), 4 requests, wait 1 second each: should have 1 new connection",
 			WaitTime:            0,
 			EnableCloseIdleConn: true,
-			NoConnectionReuse:   false,
 			Script:              `for (let i = 0; i < 4; i++) { http.get("HTTPBIN_URL/get"); sleep(1); }`,
 			Tester: func(t *testing.T, newConnections int64) {
 				require.Equal(t, int64(1), newConnections)
 			},
 		},
 		{
-			Name:                "With close_idle_conn.start(5), 4 requests, wait 2 seconds each",
+			Name:                "With close_idle_conn.start(5), 4 requests, wait 2 seconds each: should have 2 new connections",
 			WaitTime:            0,
 			EnableCloseIdleConn: true,
-			NoConnectionReuse:   false,
 			Script:              `for (let i = 0; i < 4; i++) { http.get("HTTPBIN_URL/get"); sleep(2); }`,
 			Tester: func(t *testing.T, newConnections int64) {
 				require.Equal(t, int64(2), newConnections)
 			},
 		},
+		{
+			Name:                "With close_idle_conn.start(5), 12 requests, wait 1 seconds each: should have 3 new connections",
+			WaitTime:            0,
+			EnableCloseIdleConn: true,
+			Script:              `for (let i = 0; i < 12; i++) { http.get("HTTPBIN_URL/get"); sleep(1); }`,
+			Tester: func(t *testing.T, newConnections int64) {
+				require.Equal(t, int64(3), newConnections)
+			},
+		},
+		{
+			Name:                "With close_idle_conn.start(5), 16 requests, wait 1 seconds each: should have 4 new connections",
+			WaitTime:            0,
+			EnableCloseIdleConn: true,
+			Script:              `for (let i = 0; i < 16; i++) { http.get("HTTPBIN_URL/get"); sleep(1); }`,
+			Tester: func(t *testing.T, newConnections int64) {
+				require.Equal(t, int64(4), newConnections)
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		println("Running test case:", tc.Name)
-		tb := httpmultibin.NewHTTPMultiBin(t)
-		defer tb.ServerHTTP.Close()
-		tb.Mux.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+			tb := httpmultibin.NewHTTPMultiBin(t)
+			defer tb.ServerHTTP.Close()
+			tb.Mux.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
 
-		var cw ConnectionWatcher
-		tb.ServerHTTP.Config.ConnState = cw.OnStateChange
+			var cw ConnectionWatcher
+			tb.ServerHTTP.Config.ConnState = cw.OnStateChange
 
-		testRuntime, samples := newTestRuntime(t, tb, tc.NoConnectionReuse)
+			testRuntime, _ := newTestRuntime(t, tb)
 
-		fmt.Println("No connection reuse:", testRuntime.VU.State().Options.NoConnectionReuse)
-
-		closeIdleConn := New().NewModuleInstance(testRuntime.VU).(*CloseIdleConn)
-		if tc.EnableCloseIdleConn {
-			closeIdleConn.Start(5)
-		}
-
-		_, err := testRuntime.VU.Runtime().RunString(tb.Replacer.Replace(tc.Script))
-		require.NoError(t, err)
-
-		bufSamples := metrics.GetBufferedSamples(samples)
-
-		for _, container := range bufSamples {
-			for _, sample := range container.GetSamples() {
-				if sample.Metric.Name == "http_req_connecting" {
-					fmt.Println("http_req_connecting:", sample.Value)
-				}
+			closeIdleConn := New().NewModuleInstance(testRuntime.VU).(*CloseIdleConn)
+			if tc.EnableCloseIdleConn {
+				closeIdleConn.Start(5)
+				defer closeIdleConn.End()
 			}
-		}
 
-		time.Sleep(time.Duration(tc.WaitTime) * time.Second)
+			_, err := testRuntime.VU.Runtime().RunString(tb.Replacer.Replace(tc.Script))
+			require.NoError(t, err)
 
-		newConnections := cw.NewConnections()
-		tc.Tester(t, newConnections)
-		fmt.Println("Number of new connections:", newConnections)
+			time.Sleep(time.Duration(tc.WaitTime) * time.Second)
 
-		cw.Reset()
+			newConnections := cw.NewConnections()
+			tc.Tester(t, newConnections)
+
+			cw.Reset()
+		})
 	}
 
 }
 
-func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin, noConnectionReuse bool) (*modulestest.Runtime, chan metrics.SampleContainer) {
+func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin) (*modulestest.Runtime, chan metrics.SampleContainer) {
 	t.Helper()
 
 	testRuntime := modulestest.NewRuntime(t)
@@ -156,13 +147,12 @@ func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin, noConnectionReu
 
 	state := &lib.State{
 		Options: lib.Options{
-			SystemTags:        &metrics.DefaultSystemTagSet,
-			UserAgent:         null.StringFrom("k6-test"),
-			MaxRedirects:      null.IntFrom(10),
-			Throw:             null.BoolFrom(true),
-			Batch:             null.IntFrom(20),
-			BatchPerHost:      null.IntFrom(20),
-			NoConnectionReuse: null.BoolFrom(noConnectionReuse),
+			SystemTags:   &metrics.DefaultSystemTagSet,
+			UserAgent:    null.StringFrom("k6-test"),
+			MaxRedirects: null.IntFrom(10),
+			Throw:        null.BoolFrom(true),
+			Batch:        null.IntFrom(20),
+			BatchPerHost: null.IntFrom(20),
 		},
 		BuiltinMetrics: metrics.RegisterBuiltinMetrics(registry),
 		Tags:           lib.NewVUStateTags(registry.RootTagSet()),
