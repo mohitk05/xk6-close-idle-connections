@@ -1,6 +1,7 @@
 package close_idle_conn
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -41,12 +42,18 @@ func (ci *CloseIdleConn) Start(intervalSeconds int) {
 		return
 	}
 
+	state := ci.vu.State()
+	if state == nil {
+		fmt.Println("k6/x/close_idle_conn: state is nil, cannot start CloseIdleConn")
+		return
+	}
+
 	if intervalSeconds < 5 {
-		ci.vu.State().Logger.Warn("intervalSeconds should be greater than 5 seconds, using default value 5 seconds")
+		state.Logger.Warn("intervalSeconds should be greater than 5 seconds, using default value 5 seconds")
 		intervalSeconds = 5
 	}
 
-	transport := ci.vu.State().Transport.(*http.Transport)
+	transport := state.Transport.(*http.Transport)
 	go func() {
 		ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
 		ci.started = true

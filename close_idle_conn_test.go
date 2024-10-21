@@ -1,6 +1,7 @@
 package close_idle_conn
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -102,6 +103,10 @@ func TestCloseIdleConnStart(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
+			fmt.Println(tc.Name)
+			defer (func() {
+				fmt.Println(tc.Name + " done")
+			})()
 			tb := httpmultibin.NewHTTPMultiBin(t)
 			defer tb.ServerHTTP.Close()
 			tb.Mux.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
@@ -111,11 +116,16 @@ func TestCloseIdleConnStart(t *testing.T) {
 			var cw ConnectionWatcher
 			tb.ServerHTTP.Config.ConnState = cw.OnStateChange
 
-			testRuntime, _ := newTestRuntime(t, tb)
+			testRuntime, _, state := newTestRuntime(t, tb)
+			testRuntime.MoveToVUContext(state)
 
-			closeIdleConn := New().NewModuleInstance(testRuntime.VU).(*CloseIdleConn)
 			if tc.EnableCloseIdleConn {
-				closeIdleConn.Start(5)
+				closeIdleConn := New().NewModuleInstance(testRuntime.VU).(*CloseIdleConn)
+				testRuntime.VU.Runtime().Set("start", closeIdleConn.Exports().Named["start"])
+
+				_, err := testRuntime.VU.Runtime().RunString("start(5)")
+				require.NoError(t, err)
+
 				defer closeIdleConn.End()
 			}
 
@@ -133,7 +143,7 @@ func TestCloseIdleConnStart(t *testing.T) {
 
 }
 
-func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin) (*modulestest.Runtime, chan metrics.SampleContainer) {
+func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin) (*modulestest.Runtime, chan metrics.SampleContainer, *lib.State) {
 	t.Helper()
 
 	testRuntime := modulestest.NewRuntime(t)
@@ -163,13 +173,11 @@ func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin) (*modulestest.R
 		Samples:        samples,
 	}
 
-	testRuntime.MoveToVUContext(state)
-
 	k6HttpModule := k6Http.New().NewModuleInstance(testRuntime.VU)
 	testRuntime.VU.Runtime().Set("http", k6HttpModule.Exports().Default)
 
 	k6Module := k6.New().NewModuleInstance(testRuntime.VU)
 	testRuntime.VU.Runtime().Set("sleep", k6Module.Exports().Named["sleep"])
 
-	return testRuntime, samples
+	return testRuntime, samples, state
 }
