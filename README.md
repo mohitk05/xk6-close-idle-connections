@@ -8,10 +8,14 @@ xk6 build v0.53.0 --with github.com/mohitk05/xk6-close-idle-connections@latest
 
 ## Usage
 ```javascript
-import * as closeIdleConnections from 'k6/x/closeIdleConnections';
+import * as closeIdleConnections from 'k6/x/close_idle_conn';
 
 export default function () {
-  closeIdleConnections.start(10); // Will only init once, subsequent calls will return immediately
+  closeIdleConnections.start(10); // Will only init once for a VU, subsequent calls will return immediately
   // Your test script
+}
+
+export function teardown() {
+  closeIdleConnections.stop();
 }
 ```
