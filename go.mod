@@ -1,6 +1,6 @@
 module github.com/mohitk05/xk6-close-idle-connections
 
-go 1.23
+go 1.21
 
 require (
 	buf.build/gen/go/gogo/protobuf/protocolbuffers/go v1.31.0-20210810001428-4df00b267f94.1 // indirect

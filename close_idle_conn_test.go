@@ -44,7 +44,6 @@ func (cw *ConnectionWatcher) Reset() {
 }
 
 func TestCloseIdleConnStart(t *testing.T) {
-	t.Parallel()
 
 	testCases := []struct {
 		Name                string
@@ -100,13 +99,15 @@ func TestCloseIdleConnStart(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.Name, func(t *testing.T) {
+	idx := int32(-1)
+
+	for range testCases {
+		t.Run("TestCloseIdleConnStart", func(t *testing.T) {
 			t.Parallel()
+			newIdx := atomic.AddInt32(&idx, 1)
+			tc := testCases[newIdx]
 			fmt.Println(tc.Name)
-			defer (func() {
-				fmt.Println(tc.Name + " done")
-			})()
+			defer fmt.Println(tc.Name + " done")
 			tb := httpmultibin.NewHTTPMultiBin(t)
 			defer tb.ServerHTTP.Close()
 			tb.Mux.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +141,6 @@ func TestCloseIdleConnStart(t *testing.T) {
 			cw.Reset()
 		})
 	}
-
 }
 
 func newTestRuntime(t *testing.T, tb *httpmultibin.HTTPMultiBin) (*modulestest.Runtime, chan metrics.SampleContainer, *lib.State) {
