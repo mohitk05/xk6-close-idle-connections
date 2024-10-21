@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	modules.Register("k6/x/close_idle_conn", new(CloseIdleConn))
+	modules.Register("k6/x/close_idle_conn", New())
 }
 
 type (
@@ -18,17 +18,16 @@ type (
 	RootModule struct{}
 
 	// ModuleInstance represents an instance of the JS module.
-	CloseIdleConn struct {
+	ModuleInstance struct {
 		// vu provides methods for accessing internal k6 objects for a VU
-		vu          modules.VU
-		started     bool
-		channelDone chan bool
+		vu            modules.VU
+		closeIdleConn *CloseIdleConn
 	}
 )
 
 // Ensure the interfaces are implemented correctly.
 var (
-	_ modules.Instance = &CloseIdleConn{}
+	_ modules.Instance = &ModuleInstance{}
 	_ modules.Module   = &RootModule{}
 )
 
@@ -37,14 +36,20 @@ func New() *RootModule {
 	return &RootModule{}
 }
 
-func (ci *CloseIdleConn) Start(intervalSeconds int) {
-	if ci.started {
+type CloseIdleConn struct {
+	vu          modules.VU
+	started     bool
+	channelDone chan bool
+}
+
+func (cic *CloseIdleConn) Start(intervalSeconds int) {
+	if cic.started {
 		return
 	}
 
-	state := ci.vu.State()
+	state := cic.vu.State()
 	if state == nil {
-		fmt.Println("k6/x/close_idle_conn: state is nil, cannot start CloseIdleConn")
+		fmt.Println("k6/x/close_idle_conn: state is nil, cannot start close_idle_conn")
 		return
 	}
 
@@ -56,38 +61,46 @@ func (ci *CloseIdleConn) Start(intervalSeconds int) {
 	transport := state.Transport.(*http.Transport)
 	go func() {
 		ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
-		ci.started = true
+		defer ticker.Stop()
+		cic.started = true
 		for {
 			select {
 			case <-ticker.C:
+				state.Logger.Debugln("k6/x/close_idle_conn: closing idle connections")
 				transport.CloseIdleConnections()
-			case <-ci.channelDone:
-				ticker.Stop()
-				ci.started = false
+			case <-cic.channelDone:
+				state.Logger.Debugln("k6/x/close_idle_conn: received message to stop")
+				cic.started = false
 				return
 			}
 		}
 	}()
 }
 
-func (ci *CloseIdleConn) End() {
-	ci.channelDone <- true
+func (cic *CloseIdleConn) End() {
+	if !cic.started {
+		return
+	}
+	cic.channelDone <- true
 }
 
 // NewModuleInstance implements the modules.Module interface returning a new instance for each VU.
 func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
-	return &CloseIdleConn{
-		vu:          vu,
-		started:     false,
-		channelDone: make(chan bool),
+	return &ModuleInstance{
+		vu: vu,
+		closeIdleConn: &CloseIdleConn{
+			vu:          vu,
+			started:     false,
+			channelDone: make(chan bool),
+		},
 	}
 }
 
-func (mi *CloseIdleConn) Exports() modules.Exports {
+func (mi *ModuleInstance) Exports() modules.Exports {
 	return modules.Exports{
 		Named: map[string]interface{}{
-			"start": mi.Start,
-			"end":   mi.End,
+			"start": mi.closeIdleConn.Start,
+			"end":   mi.closeIdleConn.End,
 		},
 	}
 }

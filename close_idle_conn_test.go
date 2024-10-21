@@ -120,13 +120,13 @@ func TestCloseIdleConnStart(t *testing.T) {
 			testRuntime.MoveToVUContext(state)
 
 			if tc.EnableCloseIdleConn {
-				closeIdleConn := New().NewModuleInstance(testRuntime.VU).(*CloseIdleConn)
+				closeIdleConn := New().NewModuleInstance(testRuntime.VU).(*ModuleInstance)
 				testRuntime.VU.Runtime().Set("start", closeIdleConn.Exports().Named["start"])
 
 				_, err := testRuntime.VU.Runtime().RunString("start(5)")
 				require.NoError(t, err)
 
-				defer closeIdleConn.End()
+				defer closeIdleConn.closeIdleConn.End()
 			}
 
 			_, err := testRuntime.VU.Runtime().RunString(tb.Replacer.Replace(tc.Script))
