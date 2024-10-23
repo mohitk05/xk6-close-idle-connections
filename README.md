@@ -3,7 +3,7 @@
 
 ## Build
 ```bash
-xk6 build v0.53.0 --with github.com/mohitk05/xk6-close-idle-connections@latest
+xk6 build v0.52.0 --with github.com/mohitk05/xk6-close-idle-connections@latest
 ```
 
 ## Usage
